@@ -1,0 +1,352 @@
+package org.usfirst.frc.team5436.robot;
+
+import edu.wpi.first.wpilibj.IterativeRobot;
+import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import com.kauailabs.navx.frc.AHRS;
+import edu.wpi.first.wpilibj.Joystick;
+import edu.wpi.first.wpilibj.SPI;
+import edu.wpi.first.wpilibj.VictorSP;
+import edu.wpi.first.wpilibj.Compressor;
+import edu.wpi.first.wpilibj.DoubleSolenoid;
+import edu.wpi.first.wpilibj.DriverStation;
+
+
+/**
+ * The VM is configured to automatically run this class, and to call the
+ * functions corresponding to each mode, as described in the IterativeRobot
+ * documentation. If you change the name of this class or the package after
+ * creating this project, you must also update the manifest file in the resource
+ * directory.
+ */
+//this comment is a test
+public class Robot extends IterativeRobot {
+	final String defaultAuto = "Default";
+	final String customAuto = "My Auto";
+	String autoSelected;
+	
+	final String gyroEnabled = "Use Gyro";
+	final String gyroDisabled = "Don't Use Gyro";
+	String gyroSelected;
+
+	final String singleFlightStick = "Single Flightstick";
+	final String dualFlightSticks = "Dual Flightsticks";
+	String driverControls;
+		
+	SendableChooser<String> autochooser = new SendableChooser<>();
+	SendableChooser<String> gyrochooser = new SendableChooser<>();
+	SendableChooser<String> controlchooser = new SendableChooser<>();
+
+	private final int kLeftFrontMotorPort1 = 3;  //LF Motor PWM Port 1
+	private final int kLeftFrontMotorPort2 = 7;  //LF Motor PWM Port 2
+	private final int kLeftRearMotorPort1 = 0;  //LR Motor PWM Port 1
+	private final int kLeftRearMotorPort2 = 4;  //LR Motor PWM Port 2
+	private final int kRightFrontMotorPort1 = 2;  //RF Motor PWM Port 1
+	private final int kRightFrontMotorPort2 = 6;  //RF Motor PWM Port 2
+	private final int kRightRearMotorPort1 = 1;  //RR Motor PWM Port 1
+	private final int kRightRearMotorPort2 = 5;  //RR Motor PWM Port 2
+	private final int kPrimaryJoystickPort = 0;  //Main Joystick port
+	private final int kSecondaryJoystickPort = 1; //Secondary Joystick port
+	private final int kCompressorPort = 0;  //Compressor port
+	private final int kSolenoidHighGearPort = 0;  //Solenoid Extend Port
+	private final int kSolenoidLowGearPort = 1;  //Solenoid Retract Port
+	private boolean isInvertedLFMotor = false;
+	private boolean isInvertedLRMotor = false;
+	private boolean isInvertedRFMotor = true;
+	private boolean isInvertedRRMotor = true;
+	
+	private boolean isCompressorBlocked = false;
+	private boolean lastState = false;
+	private double gearShifted = 1;
+
+	private double forward;
+	private double right;
+	private double clockwise;
+	private double theta;
+	private double temp;
+	private final double scaleRotate = 0.3;  // scale rotation. Do not set above 1
+	private double targetleftFrontMotorVel;
+	private double targetleftRearMotorVel;
+	private double targetrightFrontMotorVel;
+	private double targetrightRearMotorVel;
+	private double currentleftFrontMotorVel;
+	private double currentleftRearMotorVel;
+	private double currentrightFrontMotorVel;
+	private double currentrightRearMotorVel;
+	private double rampedleftFrontMotorVel;
+	private double rampedleftRearMotorVel;
+	private double rampedrightFrontMotorVel;
+	private double rampedrightRearMotorVel;
+	
+    private final int rampConstant = 20;  //ramping iterative rate
+	
+	private VictorSP leftMotorFront1 = new VictorSP(kLeftFrontMotorPort1);
+	private VictorSP leftMotorFront2 = new VictorSP(kLeftFrontMotorPort2);
+	private VictorSP leftMotorRear1 = new VictorSP(kLeftRearMotorPort1);
+	private VictorSP leftMotorRear2 = new VictorSP(kLeftRearMotorPort2);
+	private VictorSP rightMotorFront1 = new VictorSP(kRightFrontMotorPort1);
+	private VictorSP rightMotorFront2 = new VictorSP(kRightFrontMotorPort2);
+	private VictorSP rightMotorRear1 = new VictorSP(kRightRearMotorPort1);
+	private VictorSP rightMotorRear2 = new VictorSP(kRightRearMotorPort2);
+	private Joystick primaryFlightstick = new Joystick(kPrimaryJoystickPort); 
+	private Joystick secondaryFlightstick = new Joystick(kSecondaryJoystickPort);
+	private Compressor maincompressor = new Compressor(kCompressorPort);
+	private AHRS navxgyro = new AHRS(SPI.Port.kMXP);
+    private DoubleSolenoid transSolenoid = new DoubleSolenoid(kSolenoidHighGearPort, kSolenoidLowGearPort);
+    	
+	
+	
+	/**
+	 * This function is run when the robot is first started up and should be
+	 * used for any initialization code.
+	 */
+	@Override
+	public void robotInit() {
+		
+		//Add choices for autonomous and other options in SmartDashboard
+		autochooser.addDefault("Default Auto", defaultAuto);
+		autochooser.addObject("My Auto", customAuto);
+		SmartDashboard.putData("Auto choices", autochooser);
+		
+		gyrochooser.addDefault("Gyro Choice", gyroDisabled);
+		gyrochooser.addObject("Use Gyro", gyroEnabled);
+		SmartDashboard.putData("Gyro Usage", gyrochooser);
+		
+		controlchooser.addDefault("Driver Setup 1", singleFlightStick);
+		controlchooser.addObject("Driver Choice 2", dualFlightSticks);
+		SmartDashboard.putData("Control Setup", controlchooser);
+		
+		//Get Selections from options in Smart Dashboard needed for Teleop
+		gyroSelected = gyrochooser.getSelected();
+		System.out.println("Gyro Usage selected: " + gyroSelected);
+		driverControls = controlchooser.getSelected();
+		System.out.println("Control Setup selected: " + driverControls);
+		
+		// Reset and Initialization of hardware
+		navxgyro.reset();
+		maincompressor.setClosedLoopControl(true);
+		transSolenoid.clearAllPCMStickyFaults();
+		transSolenoid.set(DoubleSolenoid.Value.kOff);
+	}
+
+	/**
+	 * This autonomous (along with the chooser code above) shows how to select
+	 * between different autonomous modes using the dashboard. The sendable
+	 * chooser code works with the Java SmartDashboard. If you prefer the
+	 * LabVIEW Dashboard, remove all of the chooser code and uncomment the
+	 * getString line to get the auto name from the text box below the Gyro
+	 *
+	 * You can add additional auto modes by adding additional comparisons to the
+	 * switch structure below with additional strings. If using the
+	 * SendableChooser make sure to add them to the chooser code above as well.
+	 */
+	@Override
+	public void autonomousInit() {
+		autoSelected = autochooser.getSelected();
+		System.out.println("Auto selected: " + autoSelected);
+	}
+
+	/**
+	 * This function is called periodically during autonomous
+	 */
+	@Override
+	public void autonomousPeriodic() {
+		switch (autoSelected) {
+		case customAuto:
+			// Put custom auto code here
+			break;
+		case defaultAuto:
+		default:
+			// Put default auto code here
+			break;
+		}
+	}
+
+	/**
+	 * This function is called periodically during operator control
+	 */
+	@Override
+	public void teleopPeriodic() {
+		
+		forward = deaden(primaryFlightstick.getY())*1/Math.sqrt(2);  //push joystick forward to go forward
+		right = deaden(primaryFlightstick.getX())*1/Math.sqrt(2);   //push joystick right to to strafe right
+		
+		//Twist is either set by rotation in single Joystick
+		//or by dual Joystick setup second stick
+		switch (driverControls){
+		  case dualFlightSticks:
+			    clockwise =  deadentwist(secondaryFlightstick.getY()); //twist joystick clockwise turns clockwise
+				clockwise = scaleRotate*clockwise; //scale rotation    
+			  break;
+		  case singleFlightStick:
+			  default:
+				clockwise =  deadentwist(primaryFlightstick.getTwist()); //twist joystick clockwise turns clockwise
+				clockwise = scaleRotate*clockwise; //scale rotation    
+			  break;
+		}
+		
+		
+		
+		
+		//Gyro Logic - Requires selection from smartdashboard.  Default is disabled
+		switch (gyroSelected) {
+		  case gyroEnabled:
+			theta = navxgyro.getAngle();  //get gyro information
+			System.out.println("gyro angle : " + theta);  
+			// Use if gyro is measured clockwise from zero reference	
+			temp = forward*Math.cos(theta) + right*Math.sin(theta);
+			right = -forward*Math.sin(theta) + right*Math.cos(theta);
+			forward = temp;
+			
+			//Use if gyro is measured counter clockwise from zero reference
+			//temp = forward*Math.cos(theta) - right*Math.sin(theta);
+			//right = forward*Math.sin(theta) + right*Math.cos(theta);
+			//forward = temp;
+			break;
+		  case gyroDisabled:
+		  default:
+			// Do nothing
+			break;
+		}
+		
+		
+		//calculate, bind motor values between -1 and + 1, and then account for reversed motor configs
+		targetleftFrontMotorVel = processMotorOutput(bound(forward+clockwise-right), isInvertedLFMotor);
+		System.out.println("Left Front Motor Commanded Speed: "+ targetleftFrontMotorVel);
+		targetrightFrontMotorVel = processMotorOutput(bound(forward-clockwise+right), isInvertedRFMotor);
+		System.out.println("Right Front Motor Commanded Speed: "+ targetrightFrontMotorVel);
+		targetleftRearMotorVel = processMotorOutput(bound(forward+clockwise+right),isInvertedLRMotor);
+		System.out.println("Left Rear Motor Commanded Speed: "+ targetleftRearMotorVel);
+		targetrightRearMotorVel = processMotorOutput(bound(forward-clockwise-right), isInvertedRRMotor);
+		System.out.printf("Right Rear Motor Commanded Speed: "+ targetrightRearMotorVel);
+		
+		//get the current motor output from motors
+		currentleftFrontMotorVel = (leftMotorFront1.getSpeed() + leftMotorFront2.getSpeed())/2;
+		currentleftRearMotorVel = (leftMotorRear1.getSpeed() + leftMotorRear2.getSpeed())/2;
+		currentrightFrontMotorVel = (rightMotorFront1.getSpeed() + rightMotorFront2.getSpeed())/2;
+		currentrightRearMotorVel = (rightMotorRear1.getSpeed() + rightMotorRear2.getSpeed())/2;
+		
+		//apply a simple integrator approach ramping function
+		
+		if (deaden(primaryFlightstick.getX()) == 0 && deaden(primaryFlightstick.getY()) == 0) {
+			rampedleftFrontMotorVel = clockwise;
+			rampedleftRearMotorVel = clockwise;
+			rampedrightFrontMotorVel = clockwise;
+			rampedrightRearMotorVel = clockwise;
+		}
+		
+		else {
+			rampedleftFrontMotorVel += (targetleftFrontMotorVel - currentleftFrontMotorVel)/rampConstant;
+			rampedleftRearMotorVel += (targetleftRearMotorVel - currentleftRearMotorVel)/rampConstant;
+			rampedrightFrontMotorVel += (targetrightFrontMotorVel - currentrightFrontMotorVel)/rampConstant;
+			rampedrightRearMotorVel += (targetrightRearMotorVel - currentrightRearMotorVel)/rampConstant;
+		}
+		
+
+		//Set Motor outputs to ramped values from above 
+				leftMotorFront1.set(rampedleftFrontMotorVel);
+				leftMotorFront2.set(rampedleftFrontMotorVel);
+				leftMotorRear1.set(rampedleftRearMotorVel);
+				leftMotorRear2.set(rampedleftRearMotorVel);
+				rightMotorFront1.set(rampedrightFrontMotorVel);
+				rightMotorFront2.set(rampedrightFrontMotorVel);
+				rightMotorRear1.set(rampedrightRearMotorVel);
+				rightMotorRear2.set(rampedrightRearMotorVel);
+				
+			
+				//Allow Compressor to run only when switch is not pressed
+				 
+				 // Tie the solenoid extension/retraction to the Flightstick Trigger
+			     // Flightstick Trigger is tied to extend to engage high gear, when released low gear
+				
+				if (gearShifted == -1) {
+					transSolenoid.set(DoubleSolenoid.Value.kForward);
+				}
+				else {
+					transSolenoid.set(DoubleSolenoid.Value.kReverse);		
+				}
+				
+				if (primaryFlightstick.getTrigger()) {
+					maincompressor.setClosedLoopControl(false);
+				}
+				else {
+					maincompressor.setClosedLoopControl(true);
+				}
+				
+				if (primaryFlightstick.getTrigger() == true && lastState == false) { 
+					gearShifted = gearShifted * -1; 
+				}
+				lastState = primaryFlightstick.getTrigger();
+		
+		
+	}
+
+	/**
+	 * This function is called periodically during test mode
+	 */
+	@Override
+	public void testPeriodic() {
+	}
+	
+	/**
+	 * This function is called to handle inverting motor values based on inverstion status
+	 */
+	private double processMotorOutput(double desiredMotorOutput, boolean InversionStatus){
+		double processedMotorOut;
+		boolean inverted;
+		
+		processedMotorOut = desiredMotorOutput;
+		inverted = InversionStatus;
+	    if (inverted){
+			return -processedMotorOut; 
+		 }
+	    return processedMotorOut;
+	 }
+	
+	/**
+	 * This function is called to return 0 from joystick until a deadband threshold is reached
+	 */
+	
+	private double deaden(double u) {
+		return Math.abs(u) < .15 ? 0 : u;
+	}
+	
+	/**
+	 * This function is called to return 0 from joystick until a deadband threshold is reached 
+	 * Seperate deadband for Twist was desired
+	 */
+	
+	private double deadentwist(double v){
+		return Math.abs(v) < .3 ? 0 : v;
+	}
+	
+	/**
+	*This function is called to limit the calculated motor output to 100% in positive or negative direction
+	*/
+	
+	private double bound(double vel ){
+		if (vel > 0){
+			vel = (vel > 1) ? 1 : vel; //Set scaling to keep -1,+1 range
+		}
+		if (vel < 0){
+			vel = (vel < -1) ? -1 : vel; //Set scaling to keep -1,+1 range
+		}
+		return vel;
+	}
+
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+}
